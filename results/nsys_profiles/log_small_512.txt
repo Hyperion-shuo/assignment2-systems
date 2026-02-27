@@ -1,0 +1,11 @@
+
+============================================================
+Benchmarking model size: small
+  d_model=768, d_ff=3072, num_layers=12, num_heads=12
+============================================================
+Capture range started in the application.
+Generating '/tmp/nsys-report-f047.qdstrm'
+Capture range ended in the application.
+[1/1] [0%                          ] profile_small_512.nsys-rep[1/1] [0%                          ] profile_small_512.nsys-rep[1/1] [10%                         ] profile_small_512.nsys-rep[1/1] [==19%                       ] profile_small_512.nsys-rep[1/1] [====28%                     ] profile_small_512.nsys-rep[1/1] [=======36%                  ] profile_small_512.nsys-rep[1/1] [=========45%                ] profile_small_512.nsys-rep[1/1] [===========53%              ] profile_small_512.nsys-rep[1/1] [==============62%           ] profile_small_512.nsys-rep[1/1] [=================72%        ] profile_small_512.nsys-rep[1/1] [===================81%      ] profile_small_512.nsys-rep[1/1] [=====================88%    ] profile_small_512.nsys-rep[1/1] [======================91%   ] profile_small_512.nsys-rep[1/1] [========================100%] profile_small_512.nsys-rep[1/1] [========================100%] profile_small_512.nsys-rep
+Generated:
+    /data/home/svenshen/cs336/assignment2-systems/results/nsys_profiles/profile_small_512.nsys-rep

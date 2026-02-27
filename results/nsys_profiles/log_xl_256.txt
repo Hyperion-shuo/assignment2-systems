@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/data/home/svenshen/cs336/assignment2-systems/cs336_systems/basic_lm_nsys_profile_run.py", line 144, in <module>
+    run_lm(args.vocab_size, args.context_length, args.batch_size, args.device, args.steps, config)
+  File "/data/home/svenshen/cs336/assignment2-systems/cs336_systems/basic_lm_nsys_profile_run.py", line 115, in run_lm
+    optimizer.step()
+  File "/data/home/svenshen/cs336/assignment2-systems/.venv/lib/python3.12/site-packages/torch/optim/optimizer.py", line 493, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/home/svenshen/cs336/assignment2-systems/cs336-basics/cs336_basics/optimizer.py", line 75, in step
+    v_t = beta_2 * prev_v_t + ((1 - beta_2) * torch.square(grad))
+                               ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 40.00 MiB. GPU 0 has a total capacity of 21.99 GiB of which 13.06 MiB is free. Including non-PyTorch memory, this process has 21.96 GiB memory in use. Of the allocated memory 21.28 GiB is allocated by PyTorch, and 402.56 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+============================================================
+Benchmarking model size: xl
+  d_model=1600, d_ff=6400, num_layers=48, num_heads=25
+============================================================
+Generated:

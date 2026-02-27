@@ -1,0 +1,11 @@
+
+============================================================
+Benchmarking model size: small
+  d_model=768, d_ff=3072, num_layers=12, num_heads=12
+============================================================
+Capture range started in the application.
+Generating '/tmp/nsys-report-a251.qdstrm'
+Capture range ended in the application.
+[1/1] [0%                          ] profile_small_256.nsys-rep[1/1] [0%                          ] profile_small_256.nsys-rep[1/1] [10%                         ] profile_small_256.nsys-rep[1/1] [==20%                       ] profile_small_256.nsys-rep[1/1] [====28%                     ] profile_small_256.nsys-rep[1/1] [=======37%                  ] profile_small_256.nsys-rep[1/1] [=========46%                ] profile_small_256.nsys-rep[1/1] [===========53%              ] profile_small_256.nsys-rep[1/1] [==============62%           ] profile_small_256.nsys-rep[1/1] [================71%         ] profile_small_256.nsys-rep[1/1] [===================80%      ] profile_small_256.nsys-rep[1/1] [=====================89%    ] profile_small_256.nsys-rep[1/1] [======================91%   ] profile_small_256.nsys-rep[1/1] [========================100%] profile_small_256.nsys-rep[1/1] [========================100%] profile_small_256.nsys-rep
+Generated:
+    /data/home/svenshen/cs336/assignment2-systems/results/nsys_profiles/profile_small_256.nsys-rep

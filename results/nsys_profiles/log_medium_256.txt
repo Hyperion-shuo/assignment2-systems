@@ -1,0 +1,11 @@
+
+============================================================
+Benchmarking model size: medium
+  d_model=1024, d_ff=4096, num_layers=24, num_heads=16
+============================================================
+Capture range started in the application.
+Generating '/tmp/nsys-report-e7ad.qdstrm'
+Capture range ended in the application.
+[1/1] [0%                          ] profile_medium_256.nsys-rep[1/1] [0%                          ] profile_medium_256.nsys-rep[1/1] [0%                          ] profile_medium_256.nsys-rep[1/1] [5%                          ] profile_medium_256.nsys-rep[1/1] [10%                         ] profile_medium_256.nsys-rep[1/1] [14%                         ] profile_medium_256.nsys-rep[1/1] [==19%                       ] profile_medium_256.nsys-rep[1/1] [===23%                      ] profile_medium_256.nsys-rep[1/1] [====28%                     ] profile_medium_256.nsys-rep[1/1] [=====32%                    ] profile_medium_256.nsys-rep[1/1] [=======37%                  ] profile_medium_256.nsys-rep[1/1] [========41%                 ] profile_medium_256.nsys-rep[1/1] [=========46%                ] profile_medium_256.nsys-rep[1/1] [===========50%              ] profile_medium_256.nsys-rep[1/1] [============55%             ] profile_medium_256.nsys-rep[1/1] [=============59%            ] profile_medium_256.nsys-rep[1/1] [==============64%           ] profile_medium_256.nsys-rep[1/1] [================68%         ] profile_medium_256.nsys-rep[1/1] [=================73%        ] profile_medium_256.nsys-rep[1/1] [==================77%       ] profile_medium_256.nsys-rep[1/1] [===================82%      ] profile_medium_256.nsys-rep[1/1] [=====================86%    ] profile_medium_256.nsys-rep[1/1] [======================90%   ] profile_medium_256.nsys-rep[1/1] [======================91%   ] profile_medium_256.nsys-rep[1/1] [========================100%] profile_medium_256.nsys-rep[1/1] [========================100%] profile_medium_256.nsys-rep
+Generated:
+    /data/home/svenshen/cs336/assignment2-systems/results/nsys_profiles/profile_medium_256.nsys-rep
