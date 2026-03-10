@@ -28,4 +28,4 @@ if __name__ == "__main__":
     # with open("test_pandas.csv", "w", encoding="utf-8") as f:
     #     f.write("ID,Name,Score\n1,Alice,95\n2,Bob,88")
 
-    csv_to_markdown_pandas("results/basic_lm_benchmark_results_warmups2.csv")
+    csv_to_markdown_pandas("results/basic_lm_benchmark_results_mixed_precision_torch_compile_warmups5.csv")

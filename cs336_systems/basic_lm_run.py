@@ -1,4 +1,5 @@
 import argparse
+from contextlib import nullcontext
 import torch
 import numpy as np
 import csv
@@ -23,14 +24,21 @@ def lm_forward_operation(
     model: BasicsTransformerLM,
     x: torch.Tensor,
     y: torch.Tensor,
+    use_mixed_precision: bool = False,
 ) -> Callable:
     def run():
-        # with torch.no_grad():
-        logits = model(x)
-        loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)), y.view(-1)
-        )
-        return loss.item()
+        if use_mixed_precision:
+            ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
+        else:
+            ctx = nullcontext()
+        
+        with ctx:
+            # with torch.no_grad():
+            logits = model(x)
+            loss = torch.nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)), y.view(-1)
+            )
+        # return loss.item()
 
     return run
 
@@ -39,19 +47,28 @@ def lm_backward_operation(
     model: BasicsTransformerLM,
     x: torch.Tensor,
     y: torch.Tensor,
+    use_mixed_precision: bool = False,
 ) -> Callable:
     start_fw = torch.cuda.Event(enable_timing=True)
     end_fw = torch.cuda.Event(enable_timing=True)
     end_bw = torch.cuda.Event(enable_timing=True)
 
     def run():
-        model.zero_grad()
-        start_fw.record()
-        logits = model(x)
-        loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)), y.view(-1)
-        )
-        end_fw.record()
+        if use_mixed_precision:
+            ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
+        else:
+            ctx = nullcontext()
+            
+        with ctx:
+            model.zero_grad()
+            start_fw.record()
+            logits = model(x)
+            loss = torch.nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)), y.view(-1)
+            )
+            end_fw.record()
+        
+        # backward not in autocast context, the precision is determined by forward already
         loss.backward()
         end_bw.record()
         torch.cuda.synchronize()
@@ -67,10 +84,12 @@ def lm_backward_operation(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--vocab_size", type=int, default=10000)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--context_length", type=int, default=256)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--warmups", type=int, default=5, help="Number of warmup runs for benchmarking")
+    parser.add_argument("--torch_compile", action="store_true", help="Whether to use torch.compile for benchmarking")
+    parser.add_argument("--use_mixed_precision", action="store_true", help="Whether to use mixed precision (bf16) for benchmarking")
     parser.add_argument(
         "--sizes", type=str, nargs="+",
         default=list(MODEL_CONFIGS.keys()),
@@ -102,6 +121,9 @@ if __name__ == "__main__":
             d_ff=config["d_ff"],
             rope_theta=10000.0,
         ).to(args.device)
+        
+        if args.torch_compile:
+            model = torch.compile(model)
 
         # Pre-generate batch data on GPU (exclude data loading from timing)
         dataset = np.random.randint(
@@ -114,7 +136,7 @@ if __name__ == "__main__":
         # Benchmark forward
         fw_mean, fw_std = benchmark(
             f"{size_name}_forward",
-            lm_forward_operation(model, x, y),
+            lm_forward_operation(model, x, y, args.use_mixed_precision),
             args.warmups
         )
         print(f"  Forward:          {fw_mean:.2f} ± {fw_std:.2f} ms")
@@ -122,7 +144,7 @@ if __name__ == "__main__":
         # Benchmark backward with CUDA event split timing
         split = benchmark_split(
             f"{size_name}_backward",
-            lm_backward_operation(model, x, y),
+            lm_backward_operation(model, x, y, args.use_mixed_precision),
             args.warmups
         )
         bw_only_mean, bw_only_std = split["bw"]
@@ -155,6 +177,10 @@ if __name__ == "__main__":
         "fwbw_mean_ms", "fwbw_std_ms", 
     ]
     # output name add warmup iter
+    if args.use_mixed_precision:
+        args.output += "_mixed_precision"
+    if args.torch_compile:
+        args.output += "_torch_compile"
     output_name = f"{args.output}_warmups{args.warmups}.csv"
     with open(output_name, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
