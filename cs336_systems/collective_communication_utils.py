@@ -1,7 +1,10 @@
 import os
+from typing import Any, Type
 import torch as th
 import torch.nn as nn
 import torch.distributed as dist
+from torch.optim import Optimizer
+from torch import Tensor
 
 def setup(rank: int, world_size: int, backend: str = 'gloo'):
     # Specify where master lives (rank 0), used to coordinate (actual data goes through NCCL)
@@ -83,7 +86,7 @@ class ddp_bucket_wrapper(nn.Module):
         for bucket in self.buckets:
             for param in bucket["params"]:
                 if param.requires_grad:
-                    hook_handle= param.register_post_accumulate_grad_hook(hook_fn)
+                    param.register_post_accumulate_grad_hook(hook_fn)
                      
     # 闭包，torch 规定hook只能传入一个参数
     # 通过闭包实现向make_ddp_hook_fn传入多个参数达到向hook传入多个参数的目的
@@ -161,3 +164,47 @@ class ddp_bucket_wrapper(nn.Module):
                 bucket["flat_buffer"] = None
             else:
                 bucket["ready_count"] = 0
+
+class zero_wrapper(Optimizer):
+    # for sgd and adam
+    def __init__(self, params, optimizer_cls: Type[Optimizer], **kwargs: Any):
+        self.global_params_with_rank = []
+        self.param_assign_counter = 0
+        defaults = kwargs
+        super().__init__(params, defaults=defaults)
+        self.optimizer = optimizer_cls(self.param_groups, **kwargs)
+        self.broadcast_handles = []
+    
+    def step(self, closure=None, **kwargs):
+        loss = None
+        loss = self.optimizer.step(closure=closure, **kwargs)
+
+        for param, owner_rank in self.global_params_with_rank:
+            handle = dist.broadcast(param.data, src=owner_rank, async_op=True)
+            self.broadcast_handles.append(handle)
+            
+        self._sync_params()
+        return loss
+                   
+    def _sync_params(self):
+        for handle in self.broadcast_handles:
+            handle.wait()
+        self.broadcast_handles.clear()
+    
+    # overwrite th.optim.Optimizer.add_param_group
+    # super().__init__ will call add_param_group to add params to the optimizer
+    def add_param_group(self, param_group: dict[str, Any]):
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        
+        origin_params: list[Tensor] = param_group['params']
+        local_params = []
+        for param in origin_params:
+            owner_rank = self.param_assign_counter % world_size
+            self.param_assign_counter += 1
+            self.global_params_with_rank.append((param, owner_rank))
+            if owner_rank == rank:
+                local_params.append(param)
+        
+        param_group['params'] = local_params
+        super().add_param_group(param_group)

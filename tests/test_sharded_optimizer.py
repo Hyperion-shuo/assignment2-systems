@@ -28,7 +28,8 @@ def test_sharded_optimizer(model_class):
 
 def _test_sharded_optimizer(rank: int, world_size: int, model_class: Type[torch.nn.Module]):
     # Use gloo backend for CPU
-    device = _setup_process_group(rank=rank, world_size=world_size, backend="gloo")
+    # Use nccl backend for GPU support reduce.OP.AVG, which is needed for our implementation of bucketed DDP
+    device = _setup_process_group(rank=rank, world_size=world_size, backend="nccl")
     torch.manual_seed(42)
     optimizer_cls = torch.optim.AdamW
     # Since we've seeded, model states should be the same across ranks without having to broadcast.

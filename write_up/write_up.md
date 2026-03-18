@@ -470,5 +470,115 @@ compare table
 
 Communication time scaling nearly linearly with the data size for both nccl and gloo. Nccl is much faster than gloo.
 
-# 2.2
+## 2.2 naive_ddp_benchmarking
 
+use transformer medium "medium": {"d_model": 1024, "d_ff": 4096,  "num_layers": 24, "num_heads": 16},  per rand batch size 8, seq_len 32, bf16 fw and fp32 bw.
+
+communication time is about 0.19s, frac per step is about 36% 
+
+### 2.3.1 minimal_ddp_flat_benchmarking
+
+same setting as 2.2 but use flatten tensor to all reduce grad.
+
+communication time is about 0.18s, frac per step is about 35% , get a bit faster, but not much
+
+![alt text](img/ddp_baseline_vs_flatten_comm_time.png)
+
+### 2.3.1 ddp_overlap_individual_parameters_benchmarking
+
+![alt text](img/ddp_overlap_thoughput.png)
+
+![alt text](img/ddp_overlap_comm_time.png)
+
+(a) The communication time is reduced to 0.0014 because we only record the time of the final gradient synchronization. The actual communication has already occurred during the backward pass via hooks, resulting in an overlap between communication and computation. And thoughput also increased 20%.
+
+```python
+if args.use_bucket_comm or args.use_overlap_comm:
+    # Bucket / overlap version: all-reduce is triggered by hooks during backward,
+    # just wait for all async ops to finish
+    transformer.finish_gradient_synchronization()
+```
+
+(b) Nsight profile result compare with naive
+
+ddp_baseline_nsys_profile
+
+![alt text](img/ddp_baseline_nsys_profile.png)
+
+ddp_overlap_nsys_profile
+
+![alt text](img/ddp_overlap_nsys_profile.png)
+
+# 2.3.3 ddp_bucketed_benchmarking
+
+(a) Benchmark your bucketed DDP implementation using the same config as the previous experiments (1 node, 2 GPUs, XL model size), varying the maximum bucket size (1, 10, 100, 1000 MB). Compare your results to the previous experiments without bucketing—do the results align with your expectations? If they don’t align, why not? You may have to use the PyTorch profiler as necessary to better understand how communication calls are ordered and/or executed. What changes in the experimental setup would you expect to yield results that are aligned with your expectations?
+
+![alt text](img/ddp_bucket_size.png)
+
+I use 1 node, 4 A10 GPUs, medium model. The 1000MB is the slowest with 17750 thoughput but still faster than baseline 16000 thoughput. The 10 MB is fastest with 19750 thoughput, the 100MB and 1 MB are similar with 19500 thoughput. I expect the larger bucket size to be faster because it can reduce the number of communication calls. But too large bucket can not overlap communication and computation well, the optimizer wait for large bucket longer.
+
+(b) Assume that the time it takes to compute the gradients for a bucket is identical to the time it takes to communicate the gradient buckets. Write an equation that models the communication overhead of DDP (i.e., the amount of additional time spent after the backward pass) as a function. of the total size (bytes) of the model parameters (s), the all-reduce algorithm bandwidth (w, computed as the size of each rank’s data divided by the time it takes to finish the all-reduce), the overhead (seconds) associated with each communication call (o), and the number of buckets (nb). From this equation, write an equation for the optimal bucket size that minimizes DDP overhead.
+
+
+
+## 2.4
+
+(a) How much memory would it take to store the master model weights, accumulated gradients and optimizer states in FP32 on a single device? How much memory is saved for backward (these will be in BF16)? How many H100 80GB GPUs worth of memory is this?
+
+(4 + 4 + 4 + 4) * (16384 * 53248) * 2 * 126 / (1024 ** 3) = 3276GB (master weights 4, Accumulated gradients 4, Optimizer states 4 + 4)
+
+(2 + 2) * (16384 * 53248) * 2 * 126 / (1024 ** 3) = 819GB (bf16 model weight for fw and bw 2, bf16 gradient 2)
+
+(4 + 4 + 4 + 4 + 2 + 2) * (16384 * 53248) * 2 * 126 / ((1024 ** 3) * 80) = 51.1875 H100 80GB GPUs
+
+(b) Now assume your master weights, optimizer state, gradients and half of your activations (inpractice every second layer) are sharded across NFSDP devices. Write an expression for how much memory this would take per device. What value does NFSDP need to be for the total memory cost to be less than 1 v5p TPU (95GB per device)? 
+
+assume batch_size global = 128 and seq_len = 1024
+
+activations = 2 * batch_size * seq_len * d_model * 126 / (1024 ** 3) / 2 = 2 * 128 * 1024 * 16384 * 126 / (1024 ** 3) = 504GB
+
+3276 + 504 = 3780GB (2 + 2 bf16 weight and gradient are released after bw, no need to consider here)
+
+3780 / 95 = 39.78, need 40 v5p TPU
+
+(c) Consider only the forward pass. Use the communication bandwidth of Wici = 2 ·9 ·1010 and FLOPS/s of C = 4.6 · 1014 for TPU v5p as given in the TPU Scaling Book. Following the notation of the Scaling Book, use MX = 2, MY = 1 (a 3D mesh), with X = 16 being your FSDP dimension, and Y = 4 being your TP dimension. At what per-device batch size is this model compute bound? What is the overall batch size in this setting?
+
+(d)In practice, we want the overall batch size to be as small as possible, and we also always use our compute effectively (in other words we want to never be communication bound). What other tricks can we employ to reduce the batch size of our model but retain high throughput?
+
+To reduce the overall batch size while preventing the model from becoming communication-bound, we must maintain the inequality where computation time is greater than or equal to communication time ($T_{comp} \ge T_{comm}$). Since $T_{comp}$ scales linearly with the batch size $b$, reducing $b$ threatens this balance. We can employ **communication-computation overlap**, a standard feature in Fully Sharded Data Parallel (FSDP) and ZeRO-3, which pre-fetches weights for layer $l+1$ via All-Gather while simultaneously executing the matrix multiplications for layer $l$. This changes the step time from $T_{comp} + T_{comm}$ to $\max(T_{comp}, T_{comm})$, allowing us to shrink the batch size until $T_{comp}$ exactly matches $T_{comm}$ without throughput degradation (Zhao et al., "PyTorch FSDP", 2023). Furthermore, we can utilize **communication compression or lower-precision communication** (e.g., FP8 instead of BF16 for All-Gather/Reduce-Scatter). Because $T_{comm} = \frac{\text{Message Size}}{\text{Bandwidth}}$, halving the message size via FP8 halves $T_{comm}$, which mathematically allows us to reduce the batch size $b$ by half while preserving the critical $T_{comp} \ge T_{comm}$ ratio. Finally, shifting the parallelization strategy to rely more on **Sequence Parallelism** (Korthikanti et al., "Reducing Activation Recomputation in Large Transformer Models", 2022) combined with Tensor Parallelism can better utilize high-speed intra-node interconnects (like ICI/NVLink) rather than slower inter-node links, effectively increasing the denominator (Bandwidth) in the $T_{comm}$ equation.
+
+Chinses version:
+
+为了在减小整体批次大小（batch size）的同时防止模型陷入通信瓶颈，我们必须维持计算时间大于或等于通信时间的不等式（即 $T_{comp} \ge T_{comm}$）。由于计算时间 $T_{comp}$ 与批次大小 $b$ 呈线性正相关，减小 $b$ 会打破这一平衡。为此，我们可以采用**计算与通信重叠（Communication-Computation Overlap）**技术，这是 FSDP 和 ZeRO-3 中的标准特性，它在执行第 $l$ 层矩阵乘法的同时，通过后台 All-Gather 预取第 $l+1$ 层的权重。这将单步耗时从 $T_{comp} + T_{comm}$ 优化为 $\max(T_{comp}, T_{comm})$，允许我们在不降低吞吐量的情况下缩小批次大小，直到 $T_{comp}$ 刚好等于 $T_{comm}$ (Zhao et al., "PyTorch FSDP", 2023)。此外，我们可以利用**通信压缩或低精度通信**（例如在 All-Gather/Reduce-Scatter 中使用 FP8 替代 BF16）。根据公式 $T_{comm} = \frac{\text{Message Size}}{\text{Bandwidth}}$，通过 FP8 将消息大小减半会使 $T_{comm}$ 减半，从数学上讲，这允许我们将批次大小 $b$ 减半，同时仍保持关键的 $T_{comp} \ge T_{comm}$ 比例。最后，将并行策略转向更多地依赖**序列并行（Sequence Parallelism）** (Korthikanti et al., "Reducing Activation Recomputation in Large Transformer Models", 2022) 结合张量并行，可以更好地利用高速的节点内互联（如 TPU 的 ICI 或 GPU 的 NVLink）而非较慢的节点间网络，从而有效增加 $T_{comm}$ 公式中的分母（即有效带宽），进一步为减小批次大小提供空间。
+
+
+# 3
+
+(a) report the peak memory usage after model initialization, directly before the optimizer step, and directly after the optimizer step. Do the results align with your expectations? Break down the memory usage in each setting.
+
+torch memory profiler result, do not use the assignemt1 train code, use ddp_lm_memory_profile.py.
+
+medium size, ctx=256, and batch size 1.
+
+![alt text](img/ddp_nonzero_memory_profile.png)
+
+![alt text](img/ddp_zero_memory_profile.png)
+
+This is wandb memory not the actually peak memory, but we can see the memory saving is about 20% with optimizer state sharding.
+
+![alt text](img/ddp_zero1_memory_wandb.png)
+
+(b) How does our implementation of optimizer state sharding affect training speed? Measure the time taken per iteration with and without optimizer state sharding for the standard configuration.
+
+Optimizer shard slow down training about 20% because we need to broadcast the updated params after optimizer step, this is addition communication overhead.
+
+![alt text](img/ddp_zero1_wall_clock.png)
+
+![alt text](img/ddp_zero1_thoughput.png)
+
+(c) How does our approach to optimizer state sharding differ from ZeRO stage 1 (described as ZeRO-DP Pos in Rajbhandari et al., 2020)?
+In ZeRO-1 use reduce scatter to shard gradient, and then all gather parameter. In our approach, we use all reduce to get the full gradient and boradcast all updated params.
+
+Our approch did not overlap optimzier step with the backward step and gradient communication, so the optimizer step is after the backward step and communication. 
+
+Our optimzier param divid by nn.module.parameters(), not flatten to 1D and divide, so the divide is not even.
